@@ -6,3 +6,43 @@ canvas {
   display: block;
 }
 
+#deathScreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  color: white;
+  font-family: Arial, sans-serif;
+}
+
+.death-content {
+  text-align: center;
+  background-color: #222;
+  padding: 30px 50px;
+  border-radius: 10px;
+  box-shadow: 0 0 15px #ff0000;
+}
+
+#restartButton {
+  margin-top: 20px;
+  padding: 10px 25px;
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+  background-color: #ff0000;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+#restartButton:hover {
+  background-color: #cc0000;
+}
+
