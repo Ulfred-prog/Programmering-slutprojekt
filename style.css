@@ -1,6 +1,8 @@
-body{
-    background-image: url(fantasy_arena_1920x1080.png); 
-    background-repeat: no-repeat;
-    background-size: cover;
-    
+body {
+  margin: 0;
+  overflow: hidden;
 }
+canvas {
+  display: block;
+}
+
