@@ -85,6 +85,14 @@ let gameOver = false;
 let hurt = false;
 let dead = false;
 
+let showHitboxes = false;
+
+document.addEventListener("keydown", (e) => {
+    if (e.key.toLowerCase() === "c") {
+        showHitboxes = !showHitboxes;
+    }
+});
+
 const deathScreen = document.getElementById("deathScreen");
 const restartButton = document.getElementById("restartButton");
 
@@ -238,9 +246,19 @@ function updateSoldier(soldier) {
                 orcX + frameWidth * scale > hitboxX &&
                 orcY < hitboxY + hitboxHeight &&
                 orcY + frameHeight * scale > hitboxY) {
+                console.log("Soldier attack hitbox:", hitboxX, hitboxY, hitboxWidth, hitboxHeight);
+                console.log("Orc position and size:", orcX, orcY, frameWidth * scale, frameHeight * scale);
                 if (!hurt && !dead) {
-                    currentHealth = Math.max(0, currentHealth - 10);
-                    hurt = true;
+                    const now = Date.now();
+                    if (!window.orcLastHitTime) {
+                        window.orcLastHitTime = 0;
+                    }
+                    const hitCooldown = 1000; // 1 second cooldown
+                    if (now - window.orcLastHitTime > hitCooldown) {
+                        currentHealth = Math.max(0, currentHealth - 10);
+                        hurt = true;
+                        window.orcLastHitTime = now;
+                    }
                 }
             }
         }
@@ -330,6 +348,49 @@ const waveConfig = {
     // Add more waves as needed
 };
 
+// Function to find bounding box of purple area in borderCanvas
+function findPurpleBoundingBox() {
+    const width = borderCanvas.width;
+    const height = borderCanvas.height;
+    const imgData = borderCtx.getImageData(0, 0, width, height);
+    const data = imgData.data;
+
+    let minX = width, minY = height, maxX = 0, maxY = 0;
+    let found = false;
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            const r = data[index];
+            const g = data[index + 1];
+            const b = data[index + 2];
+            if (r > 120 && b > 120 && g < 80) {
+                found = true;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+
+    if (!found) {
+        // Default to full canvas if no purple found
+        return { minX: 0, minY: 0, maxX: width, maxY: height };
+    }
+
+    return { minX, minY, maxX, maxY };
+}
+
+function orcHitbox() {
+    return {
+        x: orcX,
+        y: orcY,
+        width: frameWidth * scale,
+        height: frameHeight * scale
+    };
+}
+
 function findPurpleCenter() {
     const width = borderCanvas.width;
     const height = borderCanvas.height;
@@ -414,8 +475,8 @@ function drawHealthBar(x, y, width, height, health, maxHealth) {
 function animate() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    ctx.drawImage(arenaBackground, 0, 0, canvas.width, canvas.height);
     ctx.drawImage(borderOverlay, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(arenaBackground, 0, 0, canvas.width, canvas.height);
 
     let currentSprite;
     let frameCount;
@@ -525,6 +586,48 @@ function animate() {
         spawnSoldier();
         soldiersSpawned++;
         lastSpawnTime = now;
+    }
+
+    if (showHitboxes) {
+        // Draw hitboxes for debugging
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        // Draw orc hitbox
+        const orcBox = orcHitbox();
+        ctx.strokeRect(orcBox.x, orcBox.y, orcBox.width, orcBox.height);
+
+        // Draw orc attack hitbox
+        ctx.strokeStyle = "orange";
+        const orcAttackBox = orcAttackHitbox();
+        ctx.strokeRect(orcAttackBox.x, orcAttackBox.y, orcAttackBox.width, orcAttackBox.height);
+
+        // Draw soldiers hitboxes (smaller)
+        ctx.strokeStyle = "blue";
+        soldiers.forEach(soldier => {
+            const hitboxX = soldier.x + 15;
+            const hitboxY = soldier.y + 20;
+            const hitboxWidth = soldier.width - 30;
+            const hitboxHeight = soldier.height - 40;
+            ctx.strokeRect(hitboxX, hitboxY, hitboxWidth, hitboxHeight);
+        });
+
+        // Draw soldiers attack hitboxes (orange, same as orc attack hitbox)
+        ctx.strokeStyle = "orange";
+        ctx.lineWidth = 2;
+        soldiers.forEach(soldier => {
+            // Always show attack hitbox regardless of attacking state
+            const attackHitboxX = soldier.facingRight ? soldier.x + soldier.width : soldier.x - 10;
+            const attackHitboxY = soldier.y + 30;
+            const attackHitboxWidth = 10;
+            const attackHitboxHeight = soldier.height - 60;
+            ctx.strokeRect(attackHitboxX, attackHitboxY, attackHitboxWidth, attackHitboxHeight);
+        });
+
+        // Draw arena bounding box (purple area)
+        ctx.strokeStyle = "purple";
+        ctx.lineWidth = 3;
+        const arenaBox = findPurpleBoundingBox();
+        ctx.strokeRect(arenaBox.minX, arenaBox.minY, arenaBox.maxX - arenaBox.minX, arenaBox.maxY - arenaBox.minY);
     }
 
     if (currentHealth <= 0 && !dead) {
