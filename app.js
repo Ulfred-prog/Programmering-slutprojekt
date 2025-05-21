@@ -54,8 +54,15 @@ soldierDeathSprite.src = "images/Soldier/Soldier/Soldier-Death.png";
 
 const frameWidth = 100;
 const frameHeight = 100;
-const scale = 1.75;
-const speed = 2;
+const scale = 1.75; 
+const baseOrcSpeed = 2;
+const baseSoldierSpeed = 2;
+const orcSpeedScale = 1;
+const soldierSpeedScale = 1;
+
+// Hitbox scale factor to easily configure hitbox size relative to sprite size
+const hitboxScale = 0.4;
+const attackHitboxScale = 0.4;
 
 let orcX = 0;
 let orcY = 0;
@@ -90,6 +97,24 @@ let showHitboxes = false;
 document.addEventListener("keydown", (e) => {
     if (e.key.toLowerCase() === "c") {
         showHitboxes = !showHitboxes;
+    }
+
+    if (e.key === "ArrowRight") movingRight = true;
+    else if (e.key === "ArrowLeft") movingLeft = true;
+    else if (e.key === "ArrowUp") movingUp = true;
+    else if (e.key === "ArrowDown") movingDown = true;
+
+    if ((e.code === "Space" || e.code === "ShiftLeft") && !attacking && !heavyAttacking && !hurt && !dead) {
+        if (e.code === "Space") {
+            attacking = true;
+        } else if (e.code === "ShiftLeft") {
+            heavyAttacking = true;
+        }
+        frameIndex = 0;
+    }
+
+    if (["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Space", "ShiftLeft"].includes(e.code)) {
+        e.preventDefault();
     }
 });
 
@@ -191,6 +216,16 @@ function drawSoldier(soldier) {
     ctx.strokeRect(soldier.x + 10, soldier.y - 15, healthBarWidth, healthBarHeight);
 }
 
+function isInAttackRange(attackerX, attackerWidth, targetX, targetWidth, rangeMultiplier) {
+    // Calculate horizontal distance between attacker and target centers
+    const attackerCenterX = attackerX + attackerWidth / 2;
+    const targetCenterX = targetX + targetWidth / 2;
+    const distance = Math.abs(attackerCenterX - targetCenterX);
+    // Calculate attack range based on attacker's width and range multiplier
+    const attackRange = attackerWidth * rangeMultiplier;
+    return distance <= attackRange;
+}
+
 function updateSoldier(soldier) {
     // If soldier is dead and death animation finished, remove soldier from array
     if (soldier.dead) {
@@ -206,67 +241,162 @@ function updateSoldier(soldier) {
 
     // Simple AI: move towards orc if not attacking or hurt
     if (!soldier.attacking && !soldier.hurt) {
-        if (soldier.x < orcX) {
-            soldier.x += speed;
-            soldier.facingRight = true;
-            soldier.state = "walk";
-        } else if (soldier.x > orcX) {
-            soldier.x -= speed;
-            soldier.facingRight = false;
+        // Calculate distance to orc hitbox center
+        const orcBox = orcHitbox();
+        const orcCenterX = orcBox.x + orcBox.width / 2;
+        const orcCenterY = orcBox.y + orcBox.height / 2;
+
+        const soldierBox = {
+            x: soldier.x,
+            y: soldier.y,
+            width: soldier.width,
+            height: soldier.height
+        };
+        const soldierCenterX = soldierBox.x + soldierBox.width / 2;
+        const soldierCenterY = soldierBox.y + soldierBox.height / 2;
+
+        // Calculate distance between soldier and orc centers
+        const dx = orcCenterX - soldierCenterX;
+        const dy = orcCenterY - soldierCenterY;
+        const distanceToOrc = Math.sqrt(dx * dx + dy * dy);
+
+        // Minimum distance to keep from orc (slightly larger than orc hitbox width)
+        const minDistanceToOrc = orcBox.width * 0.9;
+
+        // If soldier is close enough to orc, start attacking
+        if (distanceToOrc <= minDistanceToOrc) {
+            soldier.attacking = true;
+            soldier.state = "attack";
+            soldier.frameIndex = 0;
+            return; // Skip movement this frame
+        }
+
+        // Move soldier towards orc only if farther than minDistanceToOrc
+        if (distanceToOrc > minDistanceToOrc) {
+            // Normalize direction vector
+            const dirX = dx / distanceToOrc;
+            const dirY = dy / distanceToOrc;
+
+            // Calculate proposed new position
+            let newX = soldier.x + dirX * baseSoldierSpeed * soldierSpeedScale;
+            let newY = soldier.y + dirY * baseSoldierSpeed * soldierSpeedScale;
+
+            // Check if new position is inside arena (purple area)
+            const centerX = newX + soldier.width / 2;
+            const centerY = newY + soldier.height / 2;
+            if (canMoveTo(newX, newY)) {
+                // Only update position if inside arena
+                soldier.x = newX;
+                soldier.y = newY;
+            }
+
+            soldier.facingRight = dirX >= 0;
             soldier.state = "walk";
         } else {
             soldier.state = "idle";
         }
 
-        // Check attack range
-        const distance = Math.abs(soldier.x - orcX);
-        if (distance < 100) {
-            // Slow down attack rate by adding cooldown
-            if (!soldier.attackCooldown || Date.now() - soldier.attackCooldown > 1500) {
-                soldier.attacking = true;
-                soldier.state = "attack";
-                soldier.frameIndex = 0;
-                soldier.attackCooldown = Date.now();
+        // Collision avoidance with other soldiers to prevent bundling
+        const separationDistance = soldier.width * 0.4; // reduced minimum distance between soldiers
+        soldiers.forEach(other => {
+            if (other === soldier || other.dead) return;
+
+            const otherCenterX = other.x + other.width / 2;
+            const otherCenterY = other.y + other.height / 2;
+
+            const distX = soldierCenterX - otherCenterX;
+            const distY = soldierCenterY - otherCenterY;
+            const dist = Math.sqrt(distX * distX + distY * distY);
+
+            if (dist < separationDistance && dist > 0) {
+                // Calculate repulsion vector
+                const repulseX = distX / dist;
+                const repulseY = distY / dist;
+
+                // Calculate proposed new position after repulsion
+                let repulseNewX = soldier.x + repulseX * baseSoldierSpeed * soldierSpeedScale * 0.3;
+                let repulseNewY = soldier.y + repulseY * baseSoldierSpeed * soldierSpeedScale * 0.3;
+
+                // Check if repulsion move keeps soldier inside arena
+                const repulseCenterX = repulseNewX + soldier.width / 2;
+                const repulseCenterY = repulseNewY + soldier.height / 2;
+                if (isPurpleAt(Math.floor(repulseCenterX), Math.floor(repulseCenterY))) {
+                    soldier.x = repulseNewX;
+                    soldier.y = repulseNewY;
+                }
             }
-        }
-    }
+        });
 
-    // Attack logic
-    if (soldier.attacking) {
-        // When attack animation reaches frame 2, check hitbox collision with orc
-        if (soldier.frameIndex === 2 && soldier.frameCounter === 0) {
-            // Simple hitbox: rectangle in front of soldier
-            const hitboxX = soldier.facingRight ? soldier.x + soldier.width : soldier.x - 50;
-            const hitboxY = soldier.y;
-            const hitboxWidth = 50;
-            const hitboxHeight = soldier.height;
+       
 
-            // Check collision with orc
-            if (orcX < hitboxX + hitboxWidth &&
-                orcX + frameWidth * scale > hitboxX &&
-                orcY < hitboxY + hitboxHeight &&
-                orcY + frameHeight * scale > hitboxY) {
-                console.log("Soldier attack hitbox:", hitboxX, hitboxY, hitboxWidth, hitboxHeight);
-                console.log("Orc position and size:", orcX, orcY, frameWidth * scale, frameHeight * scale);
-                if (!hurt && !dead) {
-                    const now = Date.now();
-                    if (!window.orcLastHitTime) {
-                        window.orcLastHitTime = 0;
+        // Attack logic
+        if (soldier.attacking) {
+            // When attack animation reaches frame 2, check cone or square pattern hit with orc
+            if (soldier.frameIndex === 2 && soldier.frameCounter === 0) {
+                const soldierCenterX = soldier.x + soldier.width / 2;
+                const soldierCenterY = soldier.y + soldier.height / 2;
+                const orcCenterX = orcX + (frameWidth * scale) / 2;
+                const orcCenterY = orcY + (frameHeight * scale) / 2;
+
+                // Define attack reach parameters similar to orc's attack
+                const attackReachLength = frameWidth * scale * 0.6;
+                const attackReachWidth = frameHeight * scale * 0.5;
+
+                // Determine soldier facing direction
+                const facingRight = soldier.facingRight;
+
+                // Function to check if orc center is in soldier's attack cone or square
+                function isOrcHit() {
+                    const orcBox = orcHitbox();
+                    console.log("Orc hitbox:", orcBox);
+                    const corners = [
+                        { x: orcBox.x, y: orcBox.y },
+                        { x: orcBox.x + orcBox.width, y: orcBox.y },
+                        { x: orcBox.x, y: orcBox.y + orcBox.height },
+                        { x: orcBox.x + orcBox.width, y: orcBox.y + orcBox.height }
+                    ];
+                    for (const corner of corners) {
+                        let inside = false;
+                        if (attackPatternType === "cone") {
+                            inside = isPointInCone(corner.x, corner.y, soldierCenterX, soldierCenterY, facingRight, attackReachLength, attackReachWidth);
+                        } else if (attackPatternType === "square") {
+                            inside = isPointInSquare(corner.x, corner.y, soldierCenterX, soldierCenterY, facingRight, attackReachLength, attackReachWidth);
+                        }
+                        console.log(`Corner (${corner.x.toFixed(1)}, ${corner.y.toFixed(1)}) inside attack area: ${inside}`);
+                        if (inside) {
+                            return true;
+                        }
                     }
-                    const hitCooldown = 1000; // 1 second cooldown
-                    if (now - window.orcLastHitTime > hitCooldown) {
-                        currentHealth = Math.max(0, currentHealth - 10);
-                        hurt = true;
-                        window.orcLastHitTime = now;
+                    return false;
+                }
+
+                if (isOrcHit()) {
+                    console.log("Orc hit by soldier");
+                    if (!hurt && !dead) {
+                        const now = Date.now();
+                        if (!window.orcLastHitTime) {
+                            window.orcLastHitTime = 0;
+                        }
+                        const hitCooldown = 500; // cooldown 0.5 seconds
+                        if (now - window.orcLastHitTime > hitCooldown) {
+                            currentHealth = Math.max(0, currentHealth - 15);
+                            hurt = true; // trigger hurt animation
+                            console.log("Orc hurt set to true, currentHealth:", currentHealth);
+                            window.orcLastHitTime = now;
+                        } else {
+                            console.log("Hit cooldown active, no damage applied");
+                        }
+                    } else {
+                        console.log("Orc is currently hurt or dead, no damage applied");
                     }
                 }
             }
-        }
 
         if (soldier.frameIndex >= soldierAttackFrames - 1) {
             soldier.attacking = false;
             soldier.state = "idle";
             soldier.frameIndex = 0;
+        }
         }
     }
 
@@ -275,7 +405,7 @@ function updateSoldier(soldier) {
         soldier.state = "hurt";
         soldier.frameIndex = 0;
         soldier.hurt = false;
-        soldier.health -= 10;
+        soldier.health -= 5;
         if (soldier.health <= 0) {
             soldier.dead = true;
             soldier.state = "death";
@@ -292,29 +422,98 @@ function updateAllSoldiers() {
     soldiers.forEach(updateSoldier);
 }
 
-function orcAttackHitbox() {
-    // Define orc attack hitbox based on facing direction
-    const hitboxX = facingRight ? orcX + frameWidth * scale : orcX - 30;
-    const hitboxY = orcY;
-    const hitboxWidth = 30;
-    const hitboxHeight = frameHeight * scale;
-    return { x: hitboxX, y: hitboxY, width: hitboxWidth, height: hitboxHeight };
+function isOrcInAttackRange(rangeMultiplier) {
+    // Use orcX and orc width to check if any soldier is within attack range based on pixel distance
+    for (const soldier of soldiers) {
+        if (soldier.dead) continue;
+        const orcCenterX = orcX + (frameWidth * scale) / 2;
+        const orcCenterY = orcY + (frameHeight * scale) / 2;
+        const soldierCenterX = soldier.x + soldier.width / 2;
+        const soldierCenterY = soldier.y + soldier.height / 2;
+        const dx = orcCenterX - soldierCenterX;
+        const dy = orcCenterY - soldierCenterY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const attackRange = (frameWidth * scale) * rangeMultiplier;
+        if (distance <= attackRange) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// New attack pattern type: "cone" or "square"
+const attackPatternType = "cone"; // Change to "square" to use square pattern
+
+function isPointInCone(px, py, cx, cy, facingRight, coneLength, coneWidth) {
+    // Translate point relative to cone origin
+    const dx = px - cx;
+    const dy = py - cy;
+
+    if (!facingRight) {
+        // Flip horizontally for left facing
+        if (dx > 0) return false;
+    } else {
+        if (dx < 0) return false;
+    }
+
+    // Check if point is within cone length
+    const absDx = Math.abs(dx);
+    if (absDx > coneLength) return false;
+
+    // Calculate cone half width at point dx
+    const halfWidthAtDx = (coneWidth / 2) * (1 - absDx / coneLength);
+
+    // Check if point is within cone width at dx
+    return Math.abs(dy) <= halfWidthAtDx;
+}
+
+function isPointInSquare(px, py, cx, cy, facingRight, squareLength, squareWidth) {
+    // Translate point relative to square origin
+    const dx = px - cx;
+    const dy = py - cy;
+
+    if (facingRight) {
+        if (dx < 0 || dx > squareLength) return false;
+    } else {
+        if (dx > 0 || dx < -squareLength) return false;
+    }
+
+    return Math.abs(dy) <= squareWidth / 2;
 }
 
 function checkOrcAttackHits() {
     if (!attacking && !heavyAttacking) return;
 
-    const hitbox = orcAttackHitbox();
+    const orcCenterX = orcX + (frameWidth * scale) / 2;
+    const orcCenterY = orcY + (frameHeight * scale) / 2;
+
+    // Define attack reach parameters
+    const attackReachLength = frameWidth * scale * 0.8;
+    const attackReachWidth = frameHeight * scale * 0.6;
 
     soldiers.forEach(soldier => {
         if (soldier.dead) return;
-        if (hitbox.x < soldier.x + soldier.width &&
-            hitbox.x + hitbox.width > soldier.x &&
-            hitbox.y < soldier.y + soldier.height &&
-            hitbox.y + hitbox.height > soldier.y) {
+
+        // Soldier center point
+        const soldierCenterX = soldier.x + soldier.width / 2;
+        const soldierCenterY = soldier.y + soldier.height / 2;
+
+        let hit = false;
+        if (attackPatternType === "cone") {
+            hit = isPointInCone(soldierCenterX, soldierCenterY, orcCenterX, orcCenterY, facingRight, attackReachLength, attackReachWidth);
+        } else if (attackPatternType === "square") {
+            hit = isPointInSquare(soldierCenterX, soldierCenterY, orcCenterX, orcCenterY, facingRight, attackReachLength, attackReachWidth);
+        }
+
+        if (hit) {
             soldier.hurt = true;
         }
     });
+}
+
+function orcAttackHitbox() {
+    // Removed hitbox-based orc attack hitbox function as attack is now range-based
+    return null;
 }
 
 // Modify animate function to include soldiers
@@ -322,9 +521,9 @@ const originalAnimate = animate;
 animate = function () {
     originalAnimate();
 
+    checkOrcAttackHits();
     updateAllSoldiers();
     drawAllSoldiers();
-    checkOrcAttackHits();
 };
 
 let soldiers = [];
@@ -383,11 +582,16 @@ function findPurpleBoundingBox() {
 }
 
 function orcHitbox() {
+    // Adjusted orc hitbox closer to collision hitbox surrounding the sprite
+    const width = frameWidth * scale * hitboxScale; // original scale without enlargement
+    const height = frameHeight * scale * hitboxScale; // original scale without enlargement
+    const offsetX = (frameWidth * scale - width) / 2;
+    const offsetY = (frameHeight * scale - height) / 2;
     return {
-        x: orcX,
-        y: orcY,
-        width: frameWidth * scale,
-        height: frameHeight * scale
+        x: orcX + offsetX,
+        y: orcY + offsetY,
+        width: width,
+        height: height
     };
 }
 
@@ -508,10 +712,13 @@ function animate() {
             attacking = false;
             heavyAttacking = false;
             frameIndex = 0;
-        } else if (hurt && frameIndex >= frameCount) {
-            hurt = false;
-            frameIndex = 0;
-        } else if (dead && frameIndex >= frameCount) {
+    if (hurt && frameIndex >= frameCount) {
+        console.log("Hurt animation finished, resetting hurt flag");
+        hurt = false;
+        frameIndex = 0;
+        // Reset orcLastHitTime to allow new damage after hurt animation
+        window.orcLastHitTime = 0;
+    }
             frameIndex = frameCount - 1; // Hold last death frame
         } else {
             frameIndex %= frameCount;
@@ -551,25 +758,25 @@ function animate() {
 
     if (!attacking && !heavyAttacking && !hurt && !dead) {
         if (movingRight && orcX < canvas.width - frameWidth * scale) {
-            if (canMoveTo(orcX + speed, orcY)) {
-                orcX += speed;
+            if (canMoveTo(orcX + baseOrcSpeed * orcSpeedScale, orcY)) {
+                orcX += baseOrcSpeed * orcSpeedScale;
                 facingRight = true;
             }
         }
         if (movingLeft && orcX > 0) {
-            if (canMoveTo(orcX - speed, orcY)) {
-                orcX -= speed;
+            if (canMoveTo(orcX - baseOrcSpeed * orcSpeedScale, orcY)) {
+                orcX -= baseOrcSpeed * orcSpeedScale;
                 facingRight = false;
             }
         }
         if (movingUp && orcY > 0) {
-            if (canMoveTo(orcX, orcY - speed)) {
-                orcY -= speed;
+            if (canMoveTo(orcX, orcY - baseOrcSpeed * orcSpeedScale)) {
+                orcY -= baseOrcSpeed * orcSpeedScale;
             }
         }
         if (movingDown && orcY < canvas.height - frameHeight * scale) {
-            if (canMoveTo(orcX, orcY + speed)) {
-                orcY += speed;
+            if (canMoveTo(orcX, orcY + baseOrcSpeed * orcSpeedScale)) {
+                orcY += baseOrcSpeed * orcSpeedScale;
             }
         }
     }
@@ -589,38 +796,25 @@ function animate() {
     }
 
     if (showHitboxes) {
-        // Draw hitboxes for debugging
+        // Removed drawing of attack hitboxes for orc and soldiers since attack is now range-based
+        // Draw hitboxes for debugging only (non-attack hitboxes)
         ctx.strokeStyle = "red";
         ctx.lineWidth = 2;
         // Draw orc hitbox
         const orcBox = orcHitbox();
         ctx.strokeRect(orcBox.x, orcBox.y, orcBox.width, orcBox.height);
 
-        // Draw orc attack hitbox
-        ctx.strokeStyle = "orange";
-        const orcAttackBox = orcAttackHitbox();
-        ctx.strokeRect(orcAttackBox.x, orcAttackBox.y, orcAttackBox.width, orcAttackBox.height);
-
-        // Draw soldiers hitboxes (smaller)
+        // Draw soldiers hitboxes (scaled smaller than model)
         ctx.strokeStyle = "blue";
         soldiers.forEach(soldier => {
-            const hitboxX = soldier.x + 15;
-            const hitboxY = soldier.y + 20;
-            const hitboxWidth = soldier.width - 30;
-            const hitboxHeight = soldier.height - 40;
-            ctx.strokeRect(hitboxX, hitboxY, hitboxWidth, hitboxHeight);
-        });
-
-        // Draw soldiers attack hitboxes (orange, same as orc attack hitbox)
-        ctx.strokeStyle = "orange";
-        ctx.lineWidth = 2;
-        soldiers.forEach(soldier => {
-            // Always show attack hitbox regardless of attacking state
-            const attackHitboxX = soldier.facingRight ? soldier.x + soldier.width : soldier.x - 10;
-            const attackHitboxY = soldier.y + 30;
-            const attackHitboxWidth = 10;
-            const attackHitboxHeight = soldier.height - 60;
-            ctx.strokeRect(attackHitboxX, attackHitboxY, attackHitboxWidth, attackHitboxHeight);
+            // Adjusted soldier hitbox closer to collision hitbox surrounding the sprite
+            const width = soldier.width * hitboxScale; // original scale without enlargement
+            const height = soldier.height * hitboxScale; // original scale without enlargement
+            const offsetX = (soldier.width - width) / 2;
+            const offsetY = (soldier.height - height) / 2;
+            const hitboxX = soldier.x + offsetX;
+            const hitboxY = soldier.y + offsetY;
+            ctx.strokeRect(hitboxX, hitboxY, width, height);
         });
 
         // Draw arena bounding box (purple area)
@@ -646,6 +840,8 @@ document.addEventListener("keydown", (e) => {
     else if (e.key === "ArrowDown") movingDown = true;
 
     if ((e.code === "Space" || e.code === "ShiftLeft") && !attacking && !heavyAttacking && !hurt && !dead) {
+        // Removed setting attacking flags to disable hitbox based attack
+        /*
         if (e.code === "Space") {
             attacking = true;
             // Remove orc self damage on attack
@@ -658,6 +854,7 @@ document.addEventListener("keydown", (e) => {
             // hurt = true;
         }
         frameIndex = 0;
+        */
     }
 
     if (["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", "Space", "ShiftLeft"].includes(e.code)) {
@@ -776,4 +973,4 @@ document.addEventListener("keyup", (e) => {
     else if (e.key === "ArrowLeft") movingLeft = false;
     else if (e.key === "ArrowUp") movingUp = false;
     else if (e.key === "ArrowDown") movingDown = false;
-});
+})
