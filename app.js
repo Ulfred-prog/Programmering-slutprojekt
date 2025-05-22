@@ -423,7 +423,7 @@ function updateAllSoldiers() {
 }
 
 function isOrcInAttackRange(rangeMultiplier) {
-    // Use orcX and orc width to check if any soldier is within attack range based on pixel distance
+
     for (const soldier of soldiers) {
         if (soldier.dead) continue;
         const orcCenterX = orcX + (frameWidth * scale) / 2;
@@ -441,34 +441,34 @@ function isOrcInAttackRange(rangeMultiplier) {
     return false;
 }
 
-// New attack pattern type: "cone" or "square"
-const attackPatternType = "cone"; // Change to "square" to use square pattern
+
+const attackPatternType = "cone";
 
 function isPointInCone(px, py, cx, cy, facingRight, coneLength, coneWidth) {
-    // Translate point relative to cone origin
+
     const dx = px - cx;
     const dy = py - cy;
 
     if (!facingRight) {
-        // Flip horizontally for left facing
+
         if (dx > 0) return false;
     } else {
         if (dx < 0) return false;
     }
 
-    // Check if point is within cone length
+
     const absDx = Math.abs(dx);
     if (absDx > coneLength) return false;
 
-    // Calculate cone half width at point dx
+
     const halfWidthAtDx = (coneWidth / 2) * (1 - absDx / coneLength);
 
-    // Check if point is within cone width at dx
+
     return Math.abs(dy) <= halfWidthAtDx;
 }
 
 function isPointInSquare(px, py, cx, cy, facingRight, squareLength, squareWidth) {
-    // Translate point relative to square origin
+
     const dx = px - cx;
     const dy = py - cy;
 
@@ -512,11 +512,11 @@ function checkOrcAttackHits() {
 }
 
 function orcAttackHitbox() {
-    // Removed hitbox-based orc attack hitbox function as attack is now range-based
+
     return null;
 }
 
-// Modify animate function to include soldiers
+
 const originalAnimate = animate;
 animate = function () {
     originalAnimate();
@@ -528,26 +528,27 @@ animate = function () {
 
 let soldiers = [];
 
-// Wave and round system variables
+
 let currentWave = 1;
 let currentRound = 1;
 let soldiersToSpawn = 0;
 let soldiersSpawned = 0;
-let spawnInterval = 1000; // milliseconds between spawns
+let spawnInterval = 1000;
 let lastSpawnTime = 0;
 let waveInProgress = false;
 let gameStarted = false;
+let gameCompleted = false; 
 
-// Wave configuration: number of soldiers per wave (wave 1 easiest)
+
 const waveConfig = {
     1: { soldiersCount: 3, spawnInterval: 1500 },
     2: { soldiersCount: 5, spawnInterval: 1200 },
     3: { soldiersCount: 7, spawnInterval: 1000 },
     4: { soldiersCount: 10, spawnInterval: 800 },
-    // Add more waves as needed
+    5: { soldiersCount: 12, spawnInterval: 600 }, 
 };
 
-// Function to find bounding box of purple area in borderCanvas
+
 function findPurpleBoundingBox() {
     const width = borderCanvas.width;
     const height = borderCanvas.height;
@@ -574,7 +575,7 @@ function findPurpleBoundingBox() {
     }
 
     if (!found) {
-        // Default to full canvas if no purple found
+
         return { minX: 0, minY: 0, maxX: width, maxY: height };
     }
 
@@ -582,9 +583,9 @@ function findPurpleBoundingBox() {
 }
 
 function orcHitbox() {
-    // Adjusted orc hitbox closer to collision hitbox surrounding the sprite
-    const width = frameWidth * scale * hitboxScale; // original scale without enlargement
-    const height = frameHeight * scale * hitboxScale; // original scale without enlargement
+
+    const width = frameWidth * scale * hitboxScale;
+    const height = frameHeight * scale * hitboxScale;
     const offsetX = (frameWidth * scale - width) / 2;
     const offsetY = (frameHeight * scale - height) / 2;
     return {
@@ -635,8 +636,6 @@ function imageLoaded() {
         orcX = center.x - (frameWidth * scale) / 2;
         orcY = center.y - (frameHeight * scale) / 2;
 
-        // Do not start wave automatically, wait for game start
-        // startWave(currentWave);
 
         animate();
     }
@@ -659,7 +658,7 @@ function isPurpleAt(x, y) {
     return r > 120 && b > 120 && g < 80;
 }
 
-// Check if the center point of the orc is inside the purple arena
+
 function canMoveTo(x, y) {
     const centerX = x + (frameWidth * scale) / 2;
     const centerY = y + (frameHeight * scale) / 2;
@@ -716,20 +715,20 @@ function animate() {
         console.log("Hurt animation finished, resetting hurt flag");
         hurt = false;
         frameIndex = 0;
-        // Reset orcLastHitTime to allow new damage after hurt animation
+
         window.orcLastHitTime = 0;
     }
-            frameIndex = frameCount - 1; // Hold last death frame
+            frameIndex = frameCount - 1; 
         } else {
             frameIndex %= frameCount;
         }
     }
     frameCounter++;
 
-    const healthBarHeight = 12; // increased thickness
+    const healthBarHeight = 12; 
     drawHealthBar(20, 20, frameWidth * scale - 60, healthBarHeight, currentHealth, maxHealth);
 
-    // Draw health counter text on the health bar
+
     ctx.fillStyle = "white";
     ctx.font = "bold 14px Arial";
     ctx.textAlign = "center";
@@ -781,35 +780,44 @@ function animate() {
         }
     }
 
-    // Wave and round logic
-    if (!waveInProgress && soldiers.length === 0) {
-        currentWave++;
-        startWave(currentWave);
-    }
+   // Wave and round logic
+if (!gameCompleted) {
 
-    // Spawn soldiers during wave
+    if (waveInProgress && soldiersSpawned >= soldiersToSpawn && soldiers.length === 0) {
+        waveInProgress = false;
+        
+        if (currentWave >= 5) {
+            gameCompleted = true;
+            showVictoryScreen();
+        } else {
+            setTimeout(() => {
+                currentWave++;
+                startWave(currentWave);
+            }, 2000);
+        }
+    }
+    
+
     const now = Date.now();
     if (waveInProgress && soldiersSpawned < soldiersToSpawn && now - lastSpawnTime > spawnInterval) {
         spawnSoldier();
         soldiersSpawned++;
         lastSpawnTime = now;
     }
+}
 
     if (showHitboxes) {
-        // Removed drawing of attack hitboxes for orc and soldiers since attack is now range-based
-        // Draw hitboxes for debugging only (non-attack hitboxes)
         ctx.strokeStyle = "red";
         ctx.lineWidth = 2;
-        // Draw orc hitbox
+
         const orcBox = orcHitbox();
         ctx.strokeRect(orcBox.x, orcBox.y, orcBox.width, orcBox.height);
 
-        // Draw soldiers hitboxes (scaled smaller than model)
         ctx.strokeStyle = "blue";
         soldiers.forEach(soldier => {
-            // Adjusted soldier hitbox closer to collision hitbox surrounding the sprite
-            const width = soldier.width * hitboxScale; // original scale without enlargement
-            const height = soldier.height * hitboxScale; // original scale without enlargement
+
+            const width = soldier.width * hitboxScale;
+            const height = soldier.height * hitboxScale;
             const offsetX = (soldier.width - width) / 2;
             const offsetY = (soldier.height - height) / 2;
             const hitboxX = soldier.x + offsetX;
@@ -817,7 +825,7 @@ function animate() {
             ctx.strokeRect(hitboxX, hitboxY, width, height);
         });
 
-        // Draw arena bounding box (purple area)
+
         ctx.strokeStyle = "purple";
         ctx.lineWidth = 3;
         const arenaBox = findPurpleBoundingBox();
@@ -862,7 +870,7 @@ document.addEventListener("keydown", (e) => {
     }
 });
 
-// Start game on start button click
+
 const startButton = document.getElementById("startButton");
 startButton.addEventListener("click", () => {
     gameStarted = true;
@@ -875,7 +883,7 @@ startButton.addEventListener("click", () => {
     hurt = false;
     gameOver = false;
 
-    // Hide main menu, show game canvas and wave info
+
     document.getElementById("mainMenu").style.display = "none";
     document.getElementById("gameCanvas").style.display = "block";
     document.getElementById("waveInfo").style.display = "block";
@@ -887,13 +895,13 @@ startButton.addEventListener("click", () => {
     startWave(currentWave);
 });
 
-// Spawn soldier function
+
 function getPurpleRadius(centerX, centerY) {
-    // Scan from center outward in multiple directions to find radius of purple circle
+
     const maxRadius = Math.min(borderCanvas.width, borderCanvas.height) / 2;
     let radius = maxRadius;
 
-    // Check pixels radially in 8 directions and take minimum radius where purple ends
+
     const directions = [
         { dx: 1, dy: 0 },
         { dx: 0.707, dy: 0.707 },
@@ -926,23 +934,23 @@ function spawnSoldier() {
     const center = findPurpleCenter();
     let radius = getPurpleRadius(center.x, center.y);
 
-    // Increase radius to spawn soldiers slightly outside the purple circle
+
     radius += 20;
 
-    // Spawn soldier at random angle on circumference of purple circle
+
     const angle = Math.random() * 2 * Math.PI;
     const x = center.x + radius * Math.cos(angle) - (frameWidth * scale) / 2;
     const y = center.y + radius * Math.sin(angle) - (frameHeight * scale) / 2;
 
     const soldier = createSoldier(x, y);
 
-    // Set facingRight based on position relative to center
+
     soldier.facingRight = x < center.x ? true : false;
 
     soldiers.push(soldier);
 }
 
-// Start a wave
+
 function startWave(waveNumber) {
     const config = waveConfig[waveNumber] || waveConfig[Object.keys(waveConfig).length];
     soldiersToSpawn = config.soldiersCount;
@@ -950,7 +958,7 @@ function startWave(waveNumber) {
     soldiersSpawned = 0;
     waveInProgress = true;
 
-    // Update wave info UI
+
     const waveInfo = document.getElementById("waveInfo");
     if (waveInfo) {
         waveInfo.textContent = `Wave: ${currentWave} | Round: ${currentRound}`;
