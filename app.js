@@ -70,6 +70,8 @@ let orcY = 0;
 let movingRight = false, movingLeft = false, movingUp = false, movingDown = false;
 let facingRight = true;
 let attacking = false, heavyAttacking = false;
+let lastHeavyAttackTime = 0;
+const heavyAttackCooldown = 3000; // 3 seconds cooldown
 
 let maxHealth = 100;
 let currentHealth = 100;
@@ -108,7 +110,11 @@ document.addEventListener("keydown", (e) => {
         if (e.code === "Space") {
             attacking = true;
         } else if (e.code === "ShiftLeft") {
-            heavyAttacking = true;
+            const now = Date.now();
+            if (now - lastHeavyAttackTime >= heavyAttackCooldown) {
+                heavyAttacking = true;
+                lastHeavyAttackTime = now;
+            }
         }
         frameIndex = 0;
     }
@@ -239,6 +245,14 @@ function updateSoldier(soldier) {
         return;
     }
 
+    // Track if soldier was killed by heavy attack to grant player HP
+    let killedByHeavyAttack = false;
+
+    // Initialize lastDamageTime property for damage over time mechanic
+    if (!soldier.lastDamageTime) {
+        soldier.lastDamageTime = 0;
+    }
+
     // Simple AI: move towards orc if not attacking or hurt
     if (!soldier.attacking && !soldier.hurt) {
         // Calculate distance to orc hitbox center
@@ -327,7 +341,27 @@ function updateSoldier(soldier) {
             }
         });
 
-       
+        // Damage over time to orc when soldier is within orc attack range
+        const now = Date.now();
+        const damageCooldown = 500; // 0.5 seconds cooldown
+        const orcBoxForDamage = orcHitbox();
+        const orcCenterXForDamage = orcBoxForDamage.x + orcBoxForDamage.width / 2;
+        const orcCenterYForDamage = orcBoxForDamage.y + orcBoxForDamage.height / 2;
+        const soldierCenterXForDamage = soldier.x + soldier.width / 2;
+        const soldierCenterYForDamage = soldier.y + soldier.height / 2;
+        const dxToOrcForDamage = orcCenterXForDamage - soldierCenterXForDamage;
+        const dyToOrcForDamage = orcCenterYForDamage - soldierCenterYForDamage;
+        const distanceToOrcForDamage = Math.sqrt(dxToOrcForDamage * dxToOrcForDamage + dyToOrcForDamage * dyToOrcForDamage);
+        const orcAttackRange = (frameWidth * scale) * 1.0; // increased orc attack range radius
+
+        if (distanceToOrcForDamage <= orcAttackRange) {
+            if (now - soldier.lastDamageTime > damageCooldown && !hurt && !dead) {
+                currentHealth = Math.max(0, currentHealth - 5); // damage amount per tick
+                // Remove stun effect by not setting hurt flag
+                // hurt = true;
+                soldier.lastDamageTime = now;
+            }
+        }
 
         // Attack logic
         if (soldier.attacking) {
@@ -392,25 +426,27 @@ function updateSoldier(soldier) {
                 }
             }
 
-        if (soldier.frameIndex >= soldierAttackFrames - 1) {
-            soldier.attacking = false;
-            soldier.state = "idle";
-            soldier.frameIndex = 0;
-        }
+            if (soldier.frameIndex >= soldierAttackFrames - 1) {
+                soldier.attacking = false;
+                soldier.state = "idle";
+                soldier.frameIndex = 0;
+            }
         }
     }
 
     // Hurt logic
     if (soldier.hurt) {
-        soldier.state = "hurt";
-        soldier.frameIndex = 0;
-        soldier.hurt = false;
         soldier.health -= 5;
         if (soldier.health <= 0) {
             soldier.dead = true;
             soldier.state = "death";
             soldier.frameIndex = 0;
+            // If soldier died and heavyAttacking is true, heal the orc
+            if (heavyAttacking) {
+                currentHealth = Math.min(maxHealth, currentHealth + 50); // Heal 10 HP on heavy attack kill
+            }
         }
+        soldier.hurt = false;
     }
 }
 
@@ -728,6 +764,19 @@ function animate() {
     const healthBarHeight = 12; 
     drawHealthBar(20, 20, frameWidth * scale - 60, healthBarHeight, currentHealth, maxHealth);
 
+    // Draw heavy attack cooldown bar
+    // Remove canvas drawing of cooldown bar to avoid duplicate bars
+
+    const now = Date.now();
+    const cooldownElapsed = Math.min(heavyAttackCooldown, now - lastHeavyAttackTime);
+    const cooldownRatio = 1 - cooldownElapsed / heavyAttackCooldown;
+
+    // Update HTML cooldown bar width
+    const cooldownBar = document.getElementById("heavyAttackCooldownBar");
+    if (cooldownBar) {
+        cooldownBar.style.width = (cooldownRatio * 100) + "%";
+    }
+
 
     ctx.fillStyle = "white";
     ctx.font = "bold 14px Arial";
@@ -781,30 +830,38 @@ function animate() {
     }
 
    // Wave and round logic
-if (!gameCompleted) {
+    if (!gameCompleted) {
 
-    if (waveInProgress && soldiersSpawned >= soldiersToSpawn && soldiers.length === 0) {
-        waveInProgress = false;
-        
-        if (currentWave >= 5) {
-            gameCompleted = true;
-            showVictoryScreen();
-        } else {
-            setTimeout(() => {
-                currentWave++;
-                startWave(currentWave);
-            }, 2000);
+        if (waveInProgress && soldiersSpawned >= soldiersToSpawn && soldiers.length === 0) {
+            waveInProgress = false;
+
+            if (currentWave >= 5) {
+                if (currentRound >= 5) {
+                    gameCompleted = true;
+                    showVictoryScreen();
+                } else {
+                    currentRound++;
+                    currentWave = 1;
+                    setTimeout(() => {
+                        startWave(currentWave);
+                    }, 2000);
+                }
+            } else {
+                setTimeout(() => {
+                    currentWave++;
+                    startWave(currentWave);
+                }, 2000);
+            }
+        }
+
+
+        const now = Date.now();
+        if (waveInProgress && soldiersSpawned < soldiersToSpawn && now - lastSpawnTime > spawnInterval) {
+            spawnSoldier();
+            soldiersSpawned++;
+            lastSpawnTime = now;
         }
     }
-    
-
-    const now = Date.now();
-    if (waveInProgress && soldiersSpawned < soldiersToSpawn && now - lastSpawnTime > spawnInterval) {
-        spawnSoldier();
-        soldiersSpawned++;
-        lastSpawnTime = now;
-    }
-}
 
     if (showHitboxes) {
         ctx.strokeStyle = "red";
@@ -883,7 +940,6 @@ startButton.addEventListener("click", () => {
     hurt = false;
     gameOver = false;
 
-
     document.getElementById("mainMenu").style.display = "none";
     document.getElementById("gameCanvas").style.display = "block";
     document.getElementById("waveInfo").style.display = "block";
@@ -893,6 +949,21 @@ startButton.addEventListener("click", () => {
     orcY = center.y - (frameHeight * scale) / 2;
 
     startWave(currentWave);
+});
+
+const showControlsButton = document.getElementById("showControlsButton");
+const controlsView = document.getElementById("controlsView");
+const menuButtons = document.getElementById("menuButtons");
+const backToMenuButton = document.getElementById("backToMenuButton");
+
+showControlsButton.addEventListener("click", () => {
+    controlsView.style.display = "block";
+    menuButtons.style.display = "none";
+});
+
+backToMenuButton.addEventListener("click", () => {
+    controlsView.style.display = "none";
+    menuButtons.style.display = "block";
 });
 
 
@@ -958,12 +1029,47 @@ function startWave(waveNumber) {
     soldiersSpawned = 0;
     waveInProgress = true;
 
-
     const waveInfo = document.getElementById("waveInfo");
     if (waveInfo) {
         waveInfo.textContent = `Wave: ${currentWave} | Round: ${currentRound}`;
     }
 }
+
+function showVictoryScreen() {
+    const winScreen = document.getElementById("winScreen");
+    if (winScreen) {
+        winScreen.style.display = "flex";
+    }
+    const gameCanvas = document.getElementById("gameCanvas");
+    if (gameCanvas) {
+        gameCanvas.style.display = "none";
+    }
+    const waveInfo = document.getElementById("waveInfo");
+    if (waveInfo) {
+        waveInfo.style.display = "none";
+    }
+}
+
+const winRestartButton = document.getElementById("winRestartButton");
+if (winRestartButton) {
+    winRestartButton.addEventListener("click", () => {
+        const winScreen = document.getElementById("winScreen");
+        if (winScreen) {
+            winScreen.style.display = "none";
+        }
+        const mainMenu = document.getElementById("mainMenu");
+        if (mainMenu) {
+            mainMenu.style.display = "block";
+        }
+        currentWave = 1;
+        currentRound = 1;
+        waveInProgress = false;
+        soldiers = [];
+        currentHealth = maxHealth;
+        dead = false;
+        hurt = false;
+        gameOver = false;
+    });
 
 restartButton.addEventListener("click", () => {
     currentHealth = maxHealth;
@@ -981,4 +1087,4 @@ document.addEventListener("keyup", (e) => {
     else if (e.key === "ArrowLeft") movingLeft = false;
     else if (e.key === "ArrowUp") movingUp = false;
     else if (e.key === "ArrowDown") movingDown = false;
-})
+});}
